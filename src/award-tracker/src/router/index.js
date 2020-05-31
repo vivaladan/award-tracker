@@ -4,7 +4,7 @@ import Home from '../views/Home.vue'
 
 Vue.use(VueRouter)
 
-  const routes = [
+const routes = [
   {
     path: '/',
     name: 'Home',
@@ -22,6 +22,11 @@ Vue.use(VueRouter)
     path: '/upload',
     name: 'Upload',
     component: () => import(/* webpackChunkName: "upload" */ '../views/Upload.vue')
+  },
+  {
+    path: '/parts',
+    name: 'Parts',
+    component: () => import(/* webpackChunkName: "upload" */ '../views/Parts.vue')
   }
 ]
 

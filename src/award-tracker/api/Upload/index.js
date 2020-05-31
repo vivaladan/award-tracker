@@ -6,16 +6,19 @@ module.exports = async function (context, req) {
     let headers = rows[0];
     let entGen = azure.TableUtilities.entityGenerator;
     let tableSvc = azure.createTableService();
-    let batch = new azure.TableBatch();
+
     let data = rows.slice(1);
 
-    var inserted = 0;
+    var uploaded = 0;
     var errors = [];
+    var partitions = {};
 
     for (let index = 0; index < data.length; index++) {
         const row = data[index];
 
         const sample = {
+            Row: index + 2,
+            File: fileName,
             Year: row[0],
             Quarter: row[1],
             Region: row[2],
@@ -28,31 +31,104 @@ module.exports = async function (context, req) {
             Category: row[9],
             PartDescription: row[10],
             PartNumber: row[11],
+            SO: row[12],
+            OrderDate: row[13],
+            Specialty: row[14],
+            Purpose: row[15],
+            Action: row[16],
+            SampleCost: row[17],
+            ShipmentDate: row[18],
+            ShipmentStatus: row[19],
+            ShipTurnaround: row[20],
+            Aging: row[21],
+            LaunchDate: row[22],
+            CorrectedDate: row[23],
+            PublishedMonth: row[24],
+            ShippedDate: row[25],
+            PublishDate: row[26],
+            FollowUp: row[27],
+            FollowUp: row[28],
+            PublishTurnaround: row[29],
+            ReviewUrl: row[30],
+            AwardUrl: row[31],
+            AwardRank: row[32],
+            WinsAnAward: row[33],
+            AwardDescription: row[34],
+            Licence: row[35],
+            Quote: row[36],
+            Rating: row[37],
+            EstimatedViews: row[38],
+            YouTubeViews: row[39],
+            Likes: row[40],
+            Followers: row[41],
+            VideoContent: row[42],
+        }
+
+        if (!sample.PartNumber) {
+            // errors.push({
+            //     row: sample.Row,
+            //     error: 'Missing Part Number',
+            // })
+            continue;
         }
 
         const entity = {
-            PartitionKey: entGen.String(sample.PartNumber),
-            RowKey: entGen.String(`${fileName}_${index + 2}`),
+            PartitionKey: entGen.String(encodeURIComponent(sample.PartNumber)),
+            RowKey: entGen.String(`${encodeURIComponent(fileName)}_${index + 2}`),
         }
 
         for (const property in sample) {
             entity[property] = entGen.String(sample[property]);
         }
 
-        try {
-            var response = await insert(tableSvc, 'samples', entity);
-            inserted++;
-        } catch (error) {
-            errors.push({
-                row: entity.RowKey._,
-                error
-            });
+        let partition = partitions[sample.PartNumber];
+        if (!partition) {
+            partitions[sample.PartNumber] = [entity];
+        }
+        else {
+            partition.push(entity);
         }
     }
 
+    for (const key in partitions) {
+        if (partitions.hasOwnProperty(key)) {
+            const partition = partitions[key];
+
+            var i, j, batchItems, batchLength = 100;
+            for (i = 0, j = partition.length; i < j; i += batchLength) {
+                batchItems = partition.slice(i, i + batchLength);
+
+                let batch = new azure.TableBatch();
+
+                for (let index = 0; index < batchItems.length; index++) {
+                    const batchItem = batchItems[index];
+                    batch.insertOrReplaceEntity(batchItem, { echoContent: false });
+                }
+
+                try {
+                    await executeBatch(tableSvc, 'samples', batch);
+                    uploaded += partition.length;
+                } catch (error) {
+                    errors.push({
+                        error: error.message,
+                    });
+                }
+            }
+        }
+    }
+    // try {
+    //     var response = await insert(tableSvc, 'samples', entity);
+    //     uploaded++;
+    // } catch (error) {
+    //     errors.push({
+    //         row: sample.Row,
+    //         error: error.message,
+    //     });
+    // }
+
     context.res = {
         body: {
-            inserted,
+            inserted: uploaded,
             errored: errors.length,
             errors,
         }
@@ -61,37 +137,19 @@ module.exports = async function (context, req) {
     context.done();
 }
 
-function buildEntity(entGen, row, index, headers, fileName) {
-    let partNumber = row[11];
-
-    return {
-        PartitionKey: entGen.String(partNumber),
-        RowKey: entGen.String(`${fileName}_${index + 2}`),
-
-        Quarter: entGen.String(row[0]),
-        Region: entGen.String(row[1]),
-        Country: entGen.String(row[2]),
-        Requestor: entGen.String(row[3]),
-        SiteName: entGen.String(row[4]),
-        SiteRanking: entGen.String(row[5]),
-        OrderType: entGen.String(row[6]),
-        Month: entGen.String(row[7]),
-        Category: entGen.String(row[8]),
-        PartDescription: entGen.String(row[9]),
-    };
-
-    // var entity = {
-    //     RowKey: entGen.String(`${fileName}_${index + 2}`),
-    // };
-
-    // headers.forEach((header, index) => {
-    //     entity[header] = entGen.String(row[index]);
-    // });
-
-    // var partNumber = entity["Part Number"]._;
-    // entity.PartitionKey = entGen.String(partNumber);
-
-    // return entity;
+function executeBatch(tableSvc, tableName, batch) {
+    return new Promise(
+        (resolve, reject) => {
+            tableSvc.executeBatch(tableName, batch, function (error, result, response) {
+                if (!error) {
+                    resolve();
+                }
+                else {
+                    reject(error);
+                }
+            });
+        }
+    );
 }
 
 function insert(tableSvc, tableName, entity) {
