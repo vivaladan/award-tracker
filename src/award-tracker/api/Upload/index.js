@@ -1,12 +1,112 @@
+var azure = require('azure-storage');
+
 module.exports = async function (context, req) {
-    var rows = CSVToArray(req.body);
-    
-    context.res = {
-        body: {
-            inserted: rows.length - 1,
+    let fileName = req.query.file;
+    let rows = CSVToArray(req.body);
+    let headers = rows[0];
+    let entGen = azure.TableUtilities.entityGenerator;
+    let tableSvc = azure.createTableService();
+    let batch = new azure.TableBatch();
+    let data = rows.slice(1);
+
+    var inserted = 0;
+    var errors = [];
+
+    for (let index = 0; index < data.length; index++) {
+        const row = data[index];
+
+        const sample = {
+            Year: row[0],
+            Quarter: row[1],
+            Region: row[2],
+            Country: row[3],
+            Requestor: row[4],
+            SiteName: row[5],
+            SiteRanking: row[6],
+            OrderType: row[7],
+            Month: row[8],
+            Category: row[9],
+            PartDescription: row[10],
+            PartNumber: row[11],
+        }
+
+        const entity = {
+            PartitionKey: entGen.String(sample.PartNumber),
+            RowKey: entGen.String(`${fileName}_${index + 2}`),
+        }
+
+        for (const property in sample) {
+            entity[property] = entGen.String(sample[property]);
+        }
+
+        try {
+            var response = await insert(tableSvc, 'samples', entity);
+            inserted++;
+        } catch (error) {
+            errors.push({
+                row: entity.RowKey._,
+                error
+            });
         }
     }
+
+    context.res = {
+        body: {
+            inserted,
+            errored: errors.length,
+            errors,
+        }
+    }
+
     context.done();
+}
+
+function buildEntity(entGen, row, index, headers, fileName) {
+    let partNumber = row[11];
+
+    return {
+        PartitionKey: entGen.String(partNumber),
+        RowKey: entGen.String(`${fileName}_${index + 2}`),
+
+        Quarter: entGen.String(row[0]),
+        Region: entGen.String(row[1]),
+        Country: entGen.String(row[2]),
+        Requestor: entGen.String(row[3]),
+        SiteName: entGen.String(row[4]),
+        SiteRanking: entGen.String(row[5]),
+        OrderType: entGen.String(row[6]),
+        Month: entGen.String(row[7]),
+        Category: entGen.String(row[8]),
+        PartDescription: entGen.String(row[9]),
+    };
+
+    // var entity = {
+    //     RowKey: entGen.String(`${fileName}_${index + 2}`),
+    // };
+
+    // headers.forEach((header, index) => {
+    //     entity[header] = entGen.String(row[index]);
+    // });
+
+    // var partNumber = entity["Part Number"]._;
+    // entity.PartitionKey = entGen.String(partNumber);
+
+    // return entity;
+}
+
+function insert(tableSvc, tableName, entity) {
+    return new Promise(
+        (resolve, reject) => {
+            tableSvc.insertOrReplaceEntity(tableName, entity, function (error, result, response) {
+                if (error) {
+                    reject(error);
+                }
+                else {
+                    resolve({ result, response });
+                }
+            });
+        }
+    )
 }
 
 // ref: http://stackoverflow.com/a/1293163/2343

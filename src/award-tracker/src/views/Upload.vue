@@ -7,6 +7,7 @@
         <label for="file">{{uploadText}}</label>
 
         <div v-if="inserted">{{inserted}} samples inserted</div>
+        <div v-if="errored">{{errored}} samples errored</div>
       </div>
     </form>
   </div>
@@ -24,7 +25,7 @@ export default {
       var file = e.target.files[0];
       this.uploadText = file.name;
 
-      let response = await fetch("/api/upload", {
+      let response = await fetch(`/api/upload?file=${file.name}`, {
         method: "POST",
         headers: {
           "Content-Type": "text/csv"
@@ -35,6 +36,8 @@ export default {
       let result = await response.json();
 
       this.inserted = result.inserted;
+      this.errored = result.errored;
+      this.errors = result.errors;
     },
     submit(e) {
       e.preventDefault();
